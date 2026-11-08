@@ -4,7 +4,7 @@ import { TableScene } from './scene.js';
 import { Sfx } from './audio.js';
 import { Roller, cpuThrow } from './roller.js';
 import { DragThrower } from './input.js';
-import { Effects, handTone, escapeHtml } from './effects.js';
+import { Effects, handTone, escapeHtml, diceFacesHtml } from './effects.js';
 import { handLabel, maxBet, MIN_BET, BET_UNIT } from './rules.js';
 import { PERSONALITIES, decideBet } from './cpu.js';
 import {
@@ -14,7 +14,8 @@ import {
 const $ = (id) => document.getElementById(id);
 const yen = (n) => `${n.toLocaleString('ja-JP')}円`;
 const signedYen = (n) => (n > 0 ? `+${yen(n)}` : n < 0 ? `−${yen(-n)}` : '±0円');
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms * speedFactor()));
+// noFast: プレイヤー自身の番など、早送りの対象にしない待ち
+const sleep = (ms, noFast = false) => new Promise((r) => setTimeout(r, noFast ? ms : ms * speedFactor()));
 const speedFactor = () => ($('fast').checked ? 0.35 : 1);
 
 const world = new DiceWorld();
@@ -31,7 +32,7 @@ document.addEventListener('pointerdown', () => sfx.unlock());
 
 let game = null;
 // 今の勝負の表示用の状態
-let view = { parentId: null, bets: {}, hands: {}, deltas: {}, turnId: null };
+let view = { parentId: null, bets: {}, hands: {}, deltas: {}, faces: {}, turnId: null };
 
 // ---------- 表示 ----------
 
@@ -47,7 +48,8 @@ function renderPlayers() {
     const pers = p.personality ? PERSONALITIES[p.personality].label : '';
     const bet = view.bets[p.id] ? `賭け ${yen(view.bets[p.id])}` : '';
     const hand = view.hands[p.id];
-    const handHtml = hand ? `<span class="hand tone-${handTone(hand)}">${escapeHtml(handLabel(hand))}</span>` : '';
+    const faces = view.faces[p.id] ? `<span class="faces-mini">${diceFacesHtml(view.faces[p.id])}</span>` : '';
+    const handHtml = hand ? `${faces}<span class="hand tone-${handTone(hand)}">${escapeHtml(handLabel(hand))}</span>` : '';
     const d = view.deltas[p.id];
     const deltaHtml = d !== undefined ? `<span class="delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${signedYen(d)}</span>` : '';
     return `<li class="seat seat-${p.seat}${p.id === view.turnId ? ' active' : ''}${p.isHuman ? ' me' : ''}">
@@ -125,11 +127,17 @@ async function playTurn(player) {
   renderPlayers();
   const role = player.id === view.parentId ? '親' : '子';
   const getThrow = player.isHuman
-    ? (attempt) => {
+    ? async (attempt) => {
+      if (attempt > 1) await sleep(1500, true); // 前の投げの目を見せる
+      // カメラが元の位置に戻ってから操作を受け付ける（指の位置の読み取りがずれないように）
+      scene.focusOn(null);
+      while (!scene.isAtBase()) await new Promise((r) => setTimeout(r, 50));
       setHint(`あなたの番（${role}）　${attempt}投目：丼の周りでサイコロをつかんで、丼に向かってはじいてください`);
       return thrower.waitThrow();
     }
     : async (attempt) => {
+      if (attempt > 1) await sleep(1500);
+      scene.focusOn(null);
       setHint(`${player.name}（${role}）　${attempt}投目`);
       const t = cpuThrow(PERSONALITIES[player.personality].spread, SEAT_ANGLES[player.seat]);
       world.hold(t.from);
@@ -138,14 +146,23 @@ async function playTurn(player) {
     };
 
   const result = await roller.playTurn(getThrow, (ev) => {
-    if (ev.type === 'miss') fx.miss(ev.attempt, player.name);
-    else if (ev.type === 'cocked') setHint('斜めに引っかかったので振り直し（回数に数えません）');
+    if (ev.type === 'miss') {
+      scene.focusOn(world.restingCenter());
+      fx.miss(ev.attempt, player.name, ev.values);
+    } else if (ev.type === 'cocked') {
+      setHint('斜めに引っかかったので振り直し（回数に数えません）');
+    }
   });
+  if (result.values) scene.focusOn(world.restingCenter());
+  // 役が決まった投げの目は、目無しでも表示する（最後の投げの目）
+  const shown = result.values ?? result.lastValues ?? null;
   setHint('');
-  fx.hand(result.hand, player.name);
+  fx.hand(result.hand, player.name, shown);
   view.hands[player.id] = result.hand;
+  view.faces[player.id] = shown;
   renderPlayers();
-  await sleep(1700);
+  await sleep(result.values ? 2200 : 1800);
+  scene.focusOn(null);
   return result.hand;
 }
 
@@ -153,7 +170,7 @@ async function playTurn(player) {
 
 async function playRound(round, roundNo, totalRounds) {
   const { parent, children } = round;
-  view = { parentId: parent.id, childIds: children.map((c) => c.id), bets: {}, hands: {}, deltas: {}, turnId: null };
+  view = { parentId: parent.id, childIds: children.map((c) => c.id), bets: {}, hands: {}, deltas: {}, faces: {}, turnId: null };
   world.park();
   setRoundTitle(`第${roundNo}局 / 全${totalRounds}局　親：${parent.name}`);
   renderPlayers();
@@ -222,7 +239,7 @@ function nextRoundPreview() {
 }
 
 function showResult() {
-  view = { parentId: null, bets: {}, hands: {}, deltas: {}, turnId: null };
+  view = { parentId: null, bets: {}, hands: {}, deltas: {}, faces: {}, turnId: null };
   renderPlayers();
   setRoundTitle('対戦終了');
   const rows = ranking(game).map((p) => `<tr class="${p.isHuman ? 'me' : ''}">
@@ -261,7 +278,7 @@ async function playGame() {
 }
 
 async function titleScreen() {
-  view = { parentId: null, bets: {}, hands: {}, deltas: {}, turnId: null };
+  view = { parentId: null, bets: {}, hands: {}, deltas: {}, faces: {}, turnId: null };
   setRoundTitle('');
   showPanel(`
     <h2 class="title">丼チンチロ</h2>

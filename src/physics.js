@@ -9,7 +9,7 @@ export const BOWL = {
   get topRadius() { return this.profile[this.profile.length - 1][0]; },
   get height() { return this.profile[this.profile.length - 1][1]; },
 };
-export const DIE_SIZE = 0.42;
+export const DIE_SIZE = 0.5;
 
 // サイコロの各面の目（ローカル軸方向）。向かい合う面の和が7になる。
 // three.js の BoxGeometry の面の順番（+x, -x, +y, -y, +z, -z）と合わせる。
@@ -119,7 +119,7 @@ export class DiceWorld {
       d.velocity.setZero();
       d.angularVelocity.setZero();
       const a = (i / 3) * Math.PI * 2;
-      d.position.set(center.x + Math.cos(a) * 0.3, center.y + (i === 2 ? 0.25 : 0), center.z + Math.sin(a) * 0.3);
+      d.position.set(center.x + Math.cos(a) * 0.36, center.y + (i === 2 ? 0.3 : 0), center.z + Math.sin(a) * 0.36);
       d.userData.fellOut = false;
     });
   }
@@ -179,6 +179,18 @@ export class DiceWorld {
   /** 経過時間（投げてから） */
   elapsed() {
     return this.time - this.throwTime;
+  }
+
+  /** 丼の中に止まっているサイコロの中心（カメラを寄せる先）。外に落ちたものは除く */
+  restingCenter() {
+    const inside = this.dice.filter((d) => !d.userData.fellOut && d.position.y > -1);
+    if (!inside.length) return null;
+    const c = { x: 0, y: 0, z: 0 };
+    for (const d of inside) { c.x += d.position.x; c.y += d.position.y; c.z += d.position.z; }
+    c.x /= inside.length; c.y /= inside.length; c.z /= inside.length;
+    // 中心からいちばん遠いサイコロまでの距離（カメラをどこまで寄せるかに使う）
+    c.spread = Math.max(...inside.map((d) => Math.hypot(d.position.x - c.x, d.position.z - c.z)));
+    return c;
   }
 
   fellOut() {

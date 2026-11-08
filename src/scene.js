@@ -81,6 +81,9 @@ export class TableScene {
     this.lookAt = new THREE.Vector3(0, 0.6, -0.5);
     this.camera.position.copy(this.cameraBase);
     this.camera.lookAt(this.lookAt);
+    this.camPos = this.cameraBase.clone();
+    this.camLook = this.lookAt.clone();
+    this.focusTarget = null;
 
     scene.add(new THREE.HemisphereLight('#ffe9c9', '#2a1a10', 0.7));
     const lamp = new THREE.SpotLight('#ffd9a0', 120, 30, Math.PI / 5, 0.5, 1.6);
@@ -183,6 +186,32 @@ export class TableScene {
     this.particleLife = 2.2;
   }
 
+  /**
+   * 止まったサイコロに寄って、上の面を見やすくする。null で元の位置に戻る。
+   * @param {{x:number,y:number,z:number}|null} point
+   */
+  focusOn(point) {
+    if (!point) {
+      this.focusTarget = null;
+      return;
+    }
+    // 注視点をサイコロより少し奥にずらし、サイコロが画面のやや下（役名の文字の下）に来るようにする
+    this.focusTarget = new THREE.Vector3(point.x, point.y, point.z - 1.1);
+    // 元のカメラの向きより真上寄りから、近い距離で見る
+    const dir = this.cameraBase.clone().sub(this.lookAt).normalize();
+    dir.y += 1.2;
+    dir.normalize();
+    const portrait = this.camera.aspect < 0.8;
+    const spread = point.spread ?? 0.8;
+    const dist = portrait ? 4.0 + spread * 2.4 : 4.0 + spread * 1.7;
+    this.focusPos = new THREE.Vector3(point.x, point.y, point.z).add(dir.multiplyScalar(dist));
+  }
+
+  /** カメラが元の位置に戻りきったか（投げる操作は、戻ってから受け付ける） */
+  isAtBase() {
+    return !this.focusTarget && this.camPos.distanceTo(this.cameraBase) < 0.05;
+  }
+
   addShake(amount) {
     this.shake = Math.max(this.shake, amount);
   }
@@ -233,13 +262,19 @@ export class TableScene {
       this.particles.material.opacity = 0;
     }
 
-    this.camera.position.copy(this.cameraBase);
+    // カメラを、寄っている先（focus）か元の位置へ滑らかに動かす
+    const k = 1 - Math.exp(-dt * (this.focusTarget ? 3.5 : 7));
+    const goalPos = this.focusTarget ? this.focusPos : this.cameraBase;
+    const goalLook = this.focusTarget ? this.focusTarget : this.lookAt;
+    this.camPos.lerp(goalPos, k);
+    this.camLook.lerp(goalLook, k);
+    this.camera.position.copy(this.camPos);
     if (this.shake > 0) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
       this.camera.position.y += (Math.random() - 0.5) * this.shake;
       this.shake = Math.max(0, this.shake - dt * 1.5);
     }
-    this.camera.lookAt(this.lookAt);
+    this.camera.lookAt(this.camLook);
     this.renderer.render(this.scene, this.camera);
   }
 }

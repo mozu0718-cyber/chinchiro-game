@@ -51,6 +51,7 @@ export class Roller {
   async playTurn(getThrow, onEvent = () => {}) {
     let attempt = 1;
     let cockedRetries = 0;
+    let lastValues = null;
     while (attempt <= 3) {
       const v = await getThrow(attempt);
       const r = await this.throwAndWait(v);
@@ -70,12 +71,13 @@ export class Roller {
         onEvent({ type: 'final', hand, values: r.values, attempt });
         return { hand, values: r.values, attempts: attempt };
       }
+      lastValues = r.values;
       onEvent({ type: 'miss', values: r.values, attempt });
       attempt++;
     }
     const hand = menashi();
     onEvent({ type: 'final', hand, values: null, attempt: 3 });
-    return { hand, values: null, attempts: 3 };
+    return { hand, values: null, lastValues, attempts: 3 };
   }
 }
 
