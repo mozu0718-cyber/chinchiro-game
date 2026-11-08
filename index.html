@@ -1,0 +1,156 @@
+<title>丼チンチロ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap">
+<style>
+  /* 一画面のゲーム。暗い賭場の卓という単一の見た目で固定する。上に卓の4人、下に操作、真ん中は丼 */
+  :root {
+    color-scheme: dark;
+    --font-display: "Dela Gothic One", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+    --bg: #120d0a;
+    --ink: #f6eedd;
+    --muted: #b9a88d;
+    --panel: rgba(22, 15, 10, 0.86);
+    --panel-solid: #1d140d;
+    --accent: #e0a63a;
+    --line: rgba(246, 238, 221, 0.16);
+    --up: #7fd18b;
+    --down: #ff8a7a;
+    --great: #ffd54a;
+    --good: #ffb347;
+    --bad: #8fa8c2;
+    --button: #3b2614;
+    --button-hover: #4d3219;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font-body); overflow: hidden; }
+  #stage { position: fixed; inset: 0; touch-action: none; }
+  #stage canvas { display: block; }
+
+  #top {
+    position: fixed; left: 0; right: 0; top: 0;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid; gap: 8px; pointer-events: none;
+  }
+  .bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  #round { font-family: var(--font-display); font-size: 15px; letter-spacing: 0.04em; text-shadow: 0 2px 0 #000; min-width: 0; }
+  .fast { pointer-events: auto; font-size: 13px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); padding: 6px 10px; border-radius: 999px; display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  #players { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .seat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: grid; gap: 2px; min-width: 0; transition: border-color 0.2s, box-shadow 0.2s; }
+  .seat.me { background: rgba(48, 32, 16, 0.9); }
+  .seat.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 18px rgba(224, 166, 58, 0.35); }
+  .row1 { display: flex; justify-content: space-between; gap: 6px; align-items: center; min-width: 0; }
+  .name { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .role { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+  .role-親 { background: var(--accent); color: #2a1a08; border-color: var(--accent); font-weight: 700; }
+  .role-観戦 { color: var(--muted); }
+  .money { font-variant-numeric: tabular-nums; font-size: 16px; font-weight: 700; }
+  .row3, .row4 { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; min-height: 1.3em; align-items: center; }
+  .pers { color: var(--muted); font-size: 11px; border: 1px solid var(--line); padding: 0 6px; border-radius: 4px; margin-left: 4px; }
+  .row3 .pers { margin-left: 0; }
+  .bet { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .hand { font-weight: 700; }
+  .tone-great { color: var(--great); }
+  .tone-good { color: var(--good); }
+  .tone-normal { color: var(--ink); }
+  .tone-bad { color: var(--bad); }
+  .delta { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+
+  #hint {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    width: min(560px, calc(100% - 32px));
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 14px; text-align: center; pointer-events: none;
+  }
+  #hint:empty { display: none; }
+
+  #panel {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: min(560px, calc(100% - 32px));
+    max-height: calc(100% - 200px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    background: var(--panel-solid); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
+    display: grid; gap: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  #panel h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 20px; letter-spacing: 0.04em; text-wrap: balance; }
+  #panel h2.title { font-size: 34px; color: var(--great); text-shadow: 0 3px 0 #6a2a00; }
+  #panel p { margin: 0; line-height: 1.7; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .rules { margin: 0; padding-left: 1.2em; line-height: 1.7; font-size: 13px; color: var(--muted); }
+  button { font: inherit; font-size: 16px; padding: 12px 18px; border-radius: 10px; border: 1px solid var(--accent); background: var(--button); color: var(--ink); cursor: pointer; }
+  button:hover { background: var(--button-hover); }
+  button.primary { background: var(--accent); color: #2a1a08; font-weight: 700; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.small { padding: 8px 12px; font-size: 14px; }
+  button:focus-visible, input:focus-visible, .fast:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .bet-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
+  .bet-value { font-family: var(--font-display); font-size: 30px; font-variant-numeric: tabular-nums; min-width: 6.5em; text-align: center; }
+  .bet-presets { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  tr.me td { background: rgba(224, 166, 58, 0.1); }
+  .short { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+
+  #banner { position: fixed; left: 0; right: 0; top: 30%; text-align: center; pointer-events: none; opacity: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  #banner .who { font-size: clamp(14px, 3.5vw, 20px); font-weight: 700; color: var(--ink); text-shadow: 0 2px 0 #000; }
+  #banner .main { font-family: var(--font-display); font-size: clamp(40px, 11vw, 96px); letter-spacing: 0.05em; line-height: 1.15; }
+  #banner .sub { font-size: clamp(16px, 4vw, 26px); font-weight: 700; margin-top: 2px; text-shadow: 0 2px 0 #000; }
+  #banner.show { animation: pop 2.2s ease-out forwards; }
+  @keyframes pop {
+    0% { opacity: 0; transform: scale(2.2); }
+    10% { opacity: 1; transform: scale(0.95); }
+    16% { transform: scale(1.05); }
+    22% { transform: scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; transform: scale(1); }
+  }
+  .fx-great .main { color: var(--great); text-shadow: 0 0 24px #ff7a00, 0 0 4px #fff, 0 4px 0 #8a2b00; }
+  .fx-great .sub { color: #fff3c4; }
+  .fx-good .main { color: var(--good); text-shadow: 0 0 16px #ff6a00, 0 3px 0 #6a2a00; }
+  .fx-normal .main { color: var(--ink); text-shadow: 0 3px 0 #000; }
+  .fx-miss .main { font-size: clamp(26px, 7vw, 50px); color: var(--muted); text-shadow: 0 2px 0 #000; }
+  .fx-miss .sub { color: var(--muted); }
+  .fx-bad .main { color: var(--bad); text-shadow: 0 3px 0 #000; }
+  .fx-awful .main { color: #6f8fb0; text-shadow: 0 3px 0 #000; }
+  .fx-awful.show { animation: sink 2.4s ease-in forwards; }
+  @keyframes sink {
+    0% { opacity: 0; transform: translateY(-40px) rotate(-4deg); }
+    12% { opacity: 1; transform: translateY(0) rotate(-4deg); }
+    75% { opacity: 1; transform: translateY(10px) rotate(-6deg); }
+    100% { opacity: 0; transform: translateY(60px) rotate(-8deg); }
+  }
+  @media (prefers-reduced-motion: reduce) { #banner.show, .fx-awful.show { animation: fade 2.2s linear forwards; } }
+  @keyframes fade { 0%, 85% { opacity: 1; } 100% { opacity: 0; } }
+
+  @media (max-width: 640px) {
+    #players { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .seat { padding: 6px 8px; }
+    .money { font-size: 14px; }
+    #round { font-size: 13px; }
+    #banner { top: 36%; }
+    #panel { max-height: calc(100% - 260px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+  }
+</style>
+<div id="stage"></div>
+<div id="top">
+  <div class="bar">
+    <div id="round"></div>
+    <label class="fast" for="fast"><input id="fast" type="checkbox"> CPUを早送り</label>
+  </div>
+  <ol id="players"></ol>
+</div>
+<div id="banner"></div>
+<div id="hint"></div>
+<div id="panel" hidden></div>
+<script src="dist/game.js"></script>

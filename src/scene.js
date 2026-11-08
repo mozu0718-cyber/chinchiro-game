@@ -78,7 +78,7 @@ export class TableScene {
 
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
     this.cameraBase = new THREE.Vector3(0, 9.6, 7.6);
-    this.lookAt = new THREE.Vector3(0, 0.6, 0.5);
+    this.lookAt = new THREE.Vector3(0, 0.6, -0.5);
     this.camera.position.copy(this.cameraBase);
     this.camera.lookAt(this.lookAt);
 

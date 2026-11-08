@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "build": "esbuild src/prototype.js --bundle --minify --format=iife --outfile=dist/prototype.js"
+    "build": "esbuild src/main.js --bundle --minify --format=iife --outfile=dist/game.js"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",
