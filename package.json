@@ -1,0 +1,16 @@
+{
+  "name": "chinchiro",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "esbuild src/prototype.js --bundle --minify --format=iife --outfile=dist/prototype.js"
+  },
+  "dependencies": {
+    "cannon-es": "^0.20.0",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}
