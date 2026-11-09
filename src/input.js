@@ -25,6 +25,7 @@ export class DragThrower {
     this.waiting = null;
     this.holding = false;
     this.samples = [];
+    this.enabled = true;
 
     canvas.addEventListener('pointerdown', (e) => this.#down(e));
     canvas.addEventListener('pointermove', (e) => this.#move(e));
@@ -73,7 +74,7 @@ export class DragThrower {
 
   #down(e) {
     this.hooks.onFirstTouch?.();
-    if (!this.waiting || this.holding) return;
+    if (!this.enabled || !this.waiting || this.holding) return;
     const p = this.#onPlane(e);
     if (!p) return;
     this.holding = true;
@@ -110,5 +111,126 @@ export class DragThrower {
     const r = this.waiting;
     this.waiting = null;
     r(v);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 引っぱって離す投げ方（スマホ向け）
+
+/** 投げる強さの目安。この範囲なら、丼の中心に向けて投げればほぼ入る（物理演算での計測による） */
+export const POWER = { max: 14, safeLow: 4.5, safeHigh: 8, warnLow: 3.5, warnHigh: 9 };
+const PULL_GAIN = 22; // 引いた長さ（画面の短い辺に対する割合）→ 投げる速さ
+const CANCEL_POWER = 2; // これより弱く離したら投げずにやり直し
+
+export function powerZone(p) {
+  if (p >= POWER.safeLow && p <= POWER.safeHigh) return 'safe';
+  if (p >= POWER.warnLow && p <= POWER.warnHigh) return 'warn';
+  return 'danger';
+}
+const ZONE_COLOR = { safe: '#7fd18b', warn: '#ffcc4d', danger: '#ff6b5a' };
+
+export class AimThrower {
+  /**
+   * @param {HTMLCanvasElement} canvas
+   * @param {import('./scene.js').TableScene} scene
+   * @param {import('./physics.js').DiceWorld} world
+   * @param {{onFirstTouch?: () => void, onAim?: (a: {power: number, zone: string}|null) => void, onCancel?: () => void}} hooks
+   */
+  constructor(canvas, scene, world, hooks = {}) {
+    this.canvas = canvas;
+    this.scene = scene;
+    this.world = world;
+    this.hooks = hooks;
+    this.waiting = null;
+    this.active = false;
+    this.enabled = true;
+
+    canvas.addEventListener('pointerdown', (e) => this.#down(e));
+    canvas.addEventListener('pointermove', (e) => this.#move(e));
+    canvas.addEventListener('pointerup', () => this.#up());
+    canvas.addEventListener('pointercancel', () => this.#cancel());
+  }
+
+  waitThrow() {
+    this.world.hold(HAND_START);
+    this.hand = { ...HAND_START };
+    this.scene.showGrabRing(true, RELEASE_RADIUS + 0.35);
+    return new Promise((resolve) => { this.waiting = resolve; });
+  }
+
+  #onPlane(e) {
+    return this.scene.screenToPlane(e.clientX, e.clientY, POINTER_PLANE_Y);
+  }
+
+  /** 触れた場所に一番近い、丼の縁のすぐ外の点 */
+  #ringPoint(p) {
+    const r = Math.hypot(p.x, p.z);
+    if (r < 1e-3) return { ...HAND_START };
+    return { x: (p.x / r) * RELEASE_RADIUS, y: HAND_HEIGHT, z: (p.z / r) * RELEASE_RADIUS };
+  }
+
+  #compute(e) {
+    const p = this.#onPlane(e);
+    if (!p) return null;
+    const minDim = Math.min(this.canvas.clientWidth, this.canvas.clientHeight);
+    const pull = Math.hypot(e.clientX - this.sx, e.clientY - this.sy) / minDim;
+    const power = Math.min(POWER.max, pull * PULL_GAIN);
+    // 引いた向きの反対へ投げる（卓の上での向き）
+    let dx = this.start.x - p.x;
+    let dz = this.start.z - p.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-4) return { power: 0, dir: null };
+    dx /= len;
+    dz /= len;
+    return { power, dir: { x: dx, z: dz } };
+  }
+
+  #down(e) {
+    this.hooks.onFirstTouch?.();
+    if (!this.enabled || !this.waiting || this.active) return;
+    const p = this.#onPlane(e);
+    if (!p) return;
+    this.active = true;
+    this.canvas.setPointerCapture(e.pointerId);
+    this.sx = e.clientX;
+    this.sy = e.clientY;
+    this.start = p;
+    this.hand = this.#ringPoint(p);
+    this.world.hold(this.hand);
+    this.aim = null;
+  }
+
+  #move(e) {
+    if (!this.active) return;
+    const a = this.#compute(e);
+    if (!a || !a.dir) return;
+    this.aim = a;
+    const zone = powerZone(a.power);
+    this.scene.setAim({ x: this.hand.x, y: 2.15, z: this.hand.z }, a.dir, 0.4 + a.power * 0.28, ZONE_COLOR[zone]);
+    this.hooks.onAim?.({ power: a.power, zone });
+  }
+
+  #up() {
+    if (!this.active) return;
+    this.active = false;
+    this.scene.clearAim();
+    this.hooks.onAim?.(null);
+    const a = this.aim;
+    if (!a || !a.dir || a.power < CANCEL_POWER) {
+      this.hooks.onCancel?.();
+      return;
+    }
+    const v = { x: a.dir.x * a.power, y: 1.5 + a.power * 0.12, z: a.dir.z * a.power };
+    window.__lastThrow = { speed: a.power, v }; // 自動テスト用
+    this.scene.showGrabRing(false);
+    const r = this.waiting;
+    this.waiting = null;
+    r(v);
+  }
+
+  #cancel() {
+    this.active = false;
+    this.scene.clearAim();
+    this.hooks.onAim?.(null);
   }
 }

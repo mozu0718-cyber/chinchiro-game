@@ -3,7 +3,7 @@ import { DiceWorld } from './physics.js';
 import { TableScene } from './scene.js';
 import { Sfx } from './audio.js';
 import { Roller, cpuThrow } from './roller.js';
-import { DragThrower } from './input.js';
+import { DragThrower, AimThrower, POWER } from './input.js';
 import { Effects, handTone, escapeHtml, diceFacesHtml } from './effects.js';
 import { handLabel, maxBet, MIN_BET, BET_UNIT } from './rules.js';
 import { PERSONALITIES, decideBet } from './cpu.js';
@@ -24,10 +24,69 @@ const sfx = new Sfx();
 const roller = new Roller(world);
 const fx = new Effects($('banner'), scene, sfx);
 world.onImpact = (s, kind) => sfx.hit(s, kind);
-const thrower = new DragThrower(scene.renderer.domElement, scene, world, {
+const canvas = scene.renderer.domElement;
+const flickThrower = new DragThrower(canvas, scene, world, {
   onFirstTouch: () => sfx.unlock(),
   onTooWeak: () => setHint('もっと勢いよく、丼に向かってはじくように投げてください'),
 });
+const aimThrower = new AimThrower(canvas, scene, world, {
+  onFirstTouch: () => sfx.unlock(),
+  onAim: (a) => showGauge(a),
+  onCancel: () => setHint('引きが弱すぎたので、投げませんでした。もう一度どうぞ'),
+});
+
+// 投げ方：'aim'（引っぱって離す）か 'flick'（はじく）。選んだものはこの端末に覚えておく
+let throwMode = 'aim';
+try { throwMode = localStorage.getItem('chinchiro.throwMode') === 'flick' ? 'flick' : 'aim'; } catch { /* 保存できない環境では既定のまま */ }
+function setThrowMode(mode) {
+  throwMode = mode;
+  flickThrower.enabled = mode === 'flick';
+  aimThrower.enabled = mode === 'aim';
+  $('mode').textContent = mode === 'aim' ? '投げ方：引っぱる' : '投げ方：はじく';
+  try { localStorage.setItem('chinchiro.throwMode', mode); } catch { /* 無視 */ }
+}
+$('mode').addEventListener('click', () => {
+  if (aimThrower.active || flickThrower.holding) return;
+  const waiting = currentThrower().waiting;
+  const prev = currentThrower();
+  setThrowMode(throwMode === 'aim' ? 'flick' : 'aim');
+  // 投げを待っている最中に切り替えたら、待ちを新しい方式へ引き継ぐ
+  if (waiting) {
+    prev.waiting = null;
+    scene.showGrabRing(false);
+    currentThrower().waitThrow().then(waiting);
+    setHint(throwHint(currentAttempt, currentRole));
+  }
+});
+const currentThrower = () => (throwMode === 'aim' ? aimThrower : flickThrower);
+setThrowMode(throwMode);
+
+let currentAttempt = 1;
+let currentRole = '子';
+function throwHint(attempt, role) {
+  return throwMode === 'aim'
+    ? `あなたの番（${role}）　${attempt}投目：丼の縁の近くに触れて、投げたい方向と反対へ引っぱって離してください`
+    : `あなたの番（${role}）　${attempt}投目：丼の周りでサイコロをつかんで、丼に向かってはじいてください`;
+}
+
+// 強さのゲージ
+const G_ZONES = `linear-gradient(to right,
+  var(--danger) 0%, var(--danger) ${pct(POWER.warnLow)}%,
+  var(--warn) ${pct(POWER.warnLow)}%, var(--warn) ${pct(POWER.safeLow)}%,
+  var(--safe) ${pct(POWER.safeLow)}%, var(--safe) ${pct(POWER.safeHigh)}%,
+  var(--warn) ${pct(POWER.safeHigh)}%, var(--warn) ${pct(POWER.warnHigh)}%,
+  var(--danger) ${pct(POWER.warnHigh)}%, var(--danger) 100%)`;
+function pct(v) { return ((v / POWER.max) * 100).toFixed(1); }
+function showGauge(a) {
+  const g = $('gauge');
+  if (!a) { g.hidden = true; return; }
+  g.hidden = false;
+  $('gauge-bar').style.background = G_ZONES;
+  $('gauge-mark').style.left = `${pct(a.power)}%`;
+  $('gauge-label').textContent = { safe: 'ちょうどいい', warn: 'ぎりぎり', danger: a.power < POWER.safeLow ? '弱すぎ' : '強すぎ' }[a.zone];
+  $('gauge-label').className = `zone-${a.zone}`;
+}
+
 document.addEventListener('pointerdown', () => sfx.unlock());
 
 let game = null;
@@ -132,8 +191,12 @@ async function playTurn(player) {
       // カメラが元の位置に戻ってから操作を受け付ける（指の位置の読み取りがずれないように）
       scene.focusOn(null);
       while (!scene.isAtBase()) await new Promise((r) => setTimeout(r, 50));
-      setHint(`あなたの番（${role}）　${attempt}投目：丼の周りでサイコロをつかんで、丼に向かってはじいてください`);
-      return thrower.waitThrow();
+      currentAttempt = attempt;
+      currentRole = role;
+      setHint(throwHint(attempt, role));
+      const v = await currentThrower().waitThrow();
+      scene.showGrabRing(false);
+      return v;
     }
     : async (attempt) => {
       if (attempt > 1) await sleep(1500);
@@ -303,7 +366,7 @@ async function loop() {
 }
 
 // 自動テスト用
-window.__chinchiro = { world, roller, thrower };
+window.__chinchiro = { world, roller, aimThrower, flickThrower, get thrower() { return currentThrower(); } };
 
 let last = performance.now();
 function frame(now) {

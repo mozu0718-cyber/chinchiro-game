@@ -106,6 +106,7 @@ export class TableScene {
     this.#buildBowl();
     this.#buildDice();
     this.#buildParticles();
+    this.#buildAim();
 
     this.shake = 0;
     this.resize();
@@ -164,6 +165,62 @@ export class TableScene {
     this.particles = new THREE.Points(geo, mat);
     this.particles.frustumCulled = false;
     this.scene.add(this.particles);
+  }
+
+  #buildAim() {
+    // 狙いの矢印（軸と矢じり）。卓に水平に置く
+    const mat = new THREE.MeshBasicMaterial({ color: '#7fd18b', transparent: true, opacity: 0.9, depthTest: false });
+    this.aimMat = mat;
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 1), mat);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 3), mat);
+    head.rotation.x = -Math.PI / 2; // 先端を -z（矢印の向き）へ
+    this.aimShaft = shaft;
+    this.aimHead = head;
+    this.aim = new THREE.Group();
+    this.aim.add(shaft, head);
+    this.aim.visible = false;
+    this.aim.renderOrder = 10;
+    shaft.renderOrder = 10;
+    head.renderOrder = 10;
+    this.scene.add(this.aim);
+
+    // サイコロをつかめる場所の目印（丼の周りの輪）
+    const ringGeo = new THREE.RingGeometry(0.9, 1.0, 96);
+    const ringMat = new THREE.MeshBasicMaterial({ color: '#e0a63a', transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false });
+    this.grabRing = new THREE.Mesh(ringGeo, ringMat);
+    this.grabRing.rotation.x = -Math.PI / 2;
+    this.grabRing.position.y = 0.02;
+    this.grabRingOn = false;
+    this.scene.add(this.grabRing);
+  }
+
+  /**
+   * 狙いの矢印を出す。
+   * @param {{x,y,z}} from 矢印の根元
+   * @param {{x,z}} dir 向き（長さは問わない）
+   * @param {number} length 長さ
+   * @param {string} color 色
+   */
+  setAim(from, dir, length, color) {
+    const len = Math.max(0.2, length);
+    const ang = Math.atan2(-dir.x, -dir.z); // -z 方向を基準にした回転
+    this.aim.position.set(from.x, from.y, from.z);
+    this.aim.rotation.set(0, ang, 0);
+    this.aimShaft.scale.z = len;
+    this.aimShaft.position.set(0, 0, -len / 2);
+    this.aimHead.position.set(0, 0, -len - 0.2);
+    this.aimMat.color.set(color);
+    this.aim.visible = true;
+  }
+
+  clearAim() {
+    this.aim.visible = false;
+  }
+
+  /** つかめる場所の輪を出す／消す。radius は輪の半径 */
+  showGrabRing(on, radius = 3) {
+    this.grabRingOn = on;
+    this.grabRing.scale.set(radius, radius, 1);
   }
 
   /** 紙吹雪を丼から噴き上げる。palette は色の配列 */
@@ -261,6 +318,11 @@ export class TableScene {
     } else {
       this.particles.material.opacity = 0;
     }
+
+    // つかめる場所の輪をゆっくり明滅させる
+    this.ringT = (this.ringT ?? 0) + dt;
+    const target = this.grabRingOn ? 0.35 + 0.25 * Math.sin(this.ringT * 3) : 0;
+    this.grabRing.material.opacity += (target - this.grabRing.material.opacity) * Math.min(1, dt * 8);
 
     // カメラを、寄っている先（focus）か元の位置へ滑らかに動かす
     const k = 1 - Math.exp(-dt * (this.focusTarget ? 3.5 : 7));
